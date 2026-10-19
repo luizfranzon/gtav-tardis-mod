@@ -1,7 +1,7 @@
 """Pull the TARDIS sounds out of your own copy of TARDIS Rewrite (Workshop 307175678) into assets/sounds/ as WAV.
 
 Usage: python tools/extract_sounds.py <path to fastgmad.gma> [out dir]
-Needs ffmpeg on PATH for the .ogg ones. The sounds stay on your machine: they are not part of this repo.
+Needs ffmpeg on PATH for the .ogg ones. The extracted WAVs are kept in this private repo (assets/sounds); they are TARDIS Rewrite's, not ours to share.
 """
 import os
 import struct
@@ -16,6 +16,13 @@ SOUNDS = {
     "flight_loop.wav": "sound/drmatt/tardis/flight_loop.wav",       # Exterior.Sounds.FlightLoop
     "flight_land.wav": "sound/p00gie/tardis/default/tardis_land.ogg",  # Toyota FlightLand
     "flight_fall.wav": "sound/p00gie/tardis/fall.wav",              # Exterior.Sounds.FlightFall
+    "demat.wav": "sound/p00gie/tardis/default/demat_ext.ogg",       # Toyota Teleport.demat
+    "mat.wav": "sound/p00gie/tardis/default/mat_ext.ogg",           # Toyota Teleport.mat
+    "demat_fail.wav": "sound/drmatt/tardis/demat_fail.wav",         # Exterior.Sounds.Teleport.demat_fail
+    "cloak_on.wav": "sound/drmatt/tardis/phase_enable.wav",         # Exterior.Sounds.Cloak
+    "cloak_off.wav": "sound/drmatt/tardis/phase_disable.wav",       # Exterior.Sounds.CloakOff
+    "shield_on.wav": "sound/drmatt/tardis/power_on.wav",            # the shield (not in GMod): its power sounds
+    "shield_off.wav": "sound/drmatt/tardis/power_off.wav",
 }
 
 

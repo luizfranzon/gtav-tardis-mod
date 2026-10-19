@@ -22,7 +22,7 @@ void FlightModel::Flight(const TardisState &s, Body &b, const Stick *p, View vie
 {
 	V3 up = b.rot.Up();
 	V3 fwd = view.Forward(), ri = view.Right();
-	float force = 15, vforce = 5, rforce = 2, tilt = 0;
+	float force = 15 * ThrustScale(s.speedOffset), vforce = 5 * ThrustScale(s.speedOffset), rforce = 2, tilt = 0;
 	const float tforce = 200;
 	int spindir = s.SpinDir();
 	bool spin = spindir != 0;

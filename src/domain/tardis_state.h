@@ -1,5 +1,5 @@
 // TARDIS control rules (domain), ported rule-for-rule from TARDIS Rewrite (gmod_tardis/modules sh_flight,
-// sh_float, sh_handbrake, sh_spin). Pure: no game calls.
+// sh_float, sh_handbrake, sh_spin, sh_cloak, sh_physlock). Pure: no game calls.
 #pragma once
 
 struct TardisState
@@ -11,6 +11,10 @@ struct TardisState
 	bool spin = true;
 	int spinDir = -1; // -1 anti-clockwise, 1 clockwise (GMod "spin-dir")
 	bool spinLastCycle = false;
+	bool cloak = false;
+	bool physlock = false;
+	bool shield = false; // not in GMod (its shields are a health bar): reflects attacks
+	int speedOffset = 0; // km/h added to flight's top speed (not in GMod)
 
 	int SpinDir() const { return spin ? spinDir : 0; }
 

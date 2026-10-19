@@ -4,8 +4,9 @@
 
 enum class Action
 {
-	Spawn,
-	FlightToggle, FloatToggle, Handbrake,
+	Spawn, TeleportDemat,
+	FlightToggle, FloatToggle, Handbrake, CloakToggle, PhyslockToggle, ShieldToggle,
+	SpeedUp, SpeedDown, SpeedReset,
 	FlightForward, FlightBackward, FlightLeft, FlightRight, FlightUp, FlightDown, FlightBoost, FlightRotate, FlightSpinDir,
 	FloatForward, FloatBackward, FloatLeft, FloatRight, FloatBoost, FloatRotate, FloatBrake,
 	Count
@@ -18,8 +19,11 @@ struct ActionInfo
 };
 
 inline constexpr ActionInfo kActions[] = {
-	{"spawn", "F5"},
-	{"flight-toggle", "R"}, {"float-toggle", "T"}, {"handbrake", "J"},
+	{"spawn", "F5"}, {"teleport-demat", "H"}, // GMod binds demat to MOUSE_LEFT; H here, to the map waypoint
+	{"flight-toggle", "R"}, {"float-toggle", "T"}, {"handbrake", "J"}, {"cloak-toggle", "L"}, {"physlock-toggle", "G"},
+	{"shield-toggle", "K"}, // not in GMod
+	// not in GMod: flight's top speed
+	{"flight-speed-up", "PAD_8"}, {"flight-speed-down", "PAD_5"}, {"flight-speed-reset", "PAD_0"},
 	{"flight-forward", "W"}, {"flight-backward", "S"}, {"flight-left", "A"}, {"flight-right", "D"},
 	{"flight-up", "SPACE"}, {"flight-down", "LCONTROL"}, {"flight-boost", "LSHIFT"}, {"flight-rotate", "LALT"},
 	{"flight-spindir", "MOUSE_RIGHT"},

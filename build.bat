@@ -9,6 +9,6 @@ call "%VCVARS%" >nul || exit /b 1
 if not exist "%HERE%build\obj" mkdir "%HERE%build\obj"
 cl /nologo /LD /O2 /EHsc /std:c++20 /MT /W3 /DWIN32_LEAN_AND_MEAN /DNOMINMAX /wd4244 /I "%HERE%third_party\shv" /I "%HERE%third_party\miniaudio" ^
   "%SRC%\main.cpp" "%SRC%\domain\flight_model.cpp" "%SRC%\domain\pilot_camera.cpp" "%SRC%\app\tardis.cpp" ^
-  "%SRC%\infra\gta_world.cpp" "%SRC%\infra\ini.cpp" "%SRC%\infra\log.cpp" "%SRC%\infra\ma_audio.cpp" "%SRC%\infra\ma_impl.cpp" ^
+  "%SRC%\infra\gta_world.cpp" "%SRC%\infra\gta_shield.cpp" "%SRC%\infra\ini.cpp" "%SRC%\infra\log.cpp" "%SRC%\infra\ma_audio.cpp" "%SRC%\infra\ma_impl.cpp" ^
   /Fo"%HERE%build\obj\\" /Fe"%HERE%build\TARDIS.asi" ^
   /link "%HERE%third_party\shv\ScriptHookV.lib" user32.lib

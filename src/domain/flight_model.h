@@ -30,6 +30,12 @@ class FlightModel
 public:
 	explicit FlightModel(FlightTuning t) : t_(t) {}
 
+	// Flight's cruise top speed with no boost: GMod's thrust against its linear brake (15 u/s per tick, 1% per tick).
+	// The pilot's speedOffset scales thrust, so it tops out at kTopSpeedKmh + offset, never below 1 km/h.
+	static constexpr float kTopSpeedKmh = 15 * 66 * kUnit / 0.6633f * 3.6f; // ~136.5
+	static constexpr int kMinSpeedOffset = 1 - (int)kTopSpeedKmh;          // -135
+	static float ThrustScale(int speedOffset) { return (kTopSpeedKmh + speedOffset) / kTopSpeedKmh; }
+
 	// True when flight or float owns the body: gravity off and Step() drives it. Otherwise game physics does.
 	static bool Owns(const TardisState &s) { return s.flight || s.floating; }
 

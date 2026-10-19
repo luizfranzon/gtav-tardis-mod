@@ -2,6 +2,7 @@
 #include <windows.h>
 #include <cctype>
 #include <cstdio>
+#include <fstream>
 #include <map>
 #include "log.h"
 
@@ -33,6 +34,7 @@ int KeyCode(std::string name)
 		{"LEFT", VK_LEFT}, {"RIGHT", VK_RIGHT}, {"INSERT", VK_INSERT}, {"DELETE", VK_DELETE}, {"HOME", VK_HOME},
 		{"END", VK_END}, {"PAGEUP", VK_PRIOR}, {"PAGEDOWN", VK_NEXT}};
 	if (auto it = named.find(name); it != named.end()) return it->second;
+	if (name.size() == 5 && name.rfind("PAD_", 0) == 0 && isdigit((unsigned char)name[4])) return VK_NUMPAD0 + name[4] - '0';
 	if (name.size() == 1 && isalnum((unsigned char)name[0])) return name[0];
 	if (name.size() >= 2 && name[0] == 'F')
 	{
@@ -50,6 +52,7 @@ std::string KeyLabel(std::string name)
 		{"SPACE", "Space"}, {"LSHIFT", "Shift"}, {"RSHIFT", "R.Shift"}, {"LCONTROL", "Ctrl"}, {"RCONTROL", "R.Ctrl"},
 		{"LALT", "Alt"}, {"RALT", "R.Alt"}, {"MOUSE_LEFT", "Left mouse"}, {"MOUSE_RIGHT", "Right mouse"},
 		{"MOUSE_MIDDLE", "Middle mouse"}, {"LBRACKET", "["}, {"RBRACKET", "]"}, {"ENTER", "Enter"}, {"TAB", "Tab"}};
+	if (name.size() == 5 && name.rfind("PAD_", 0) == 0) return std::string("Num ") + name[4];
 	auto it = pretty.find(name);
 	return it != pretty.end() ? it->second : name;
 }
@@ -62,7 +65,11 @@ ModConfig LoadConfig(const std::string &f)
 	c.tardis.mouseSensitivity = Num(f, "Camera", "MouseSensitivity", c.tardis.mouseSensitivity);
 	c.tardis.exitOffset = Num(f, "Exterior", "ExitOffset", c.tardis.exitOffset);
 	c.soundVolume = Num(f, "Sound", "Volume", c.soundVolume);
-	c.tardis.legend = Num(f, "HUD", "Legend", 1) != 0;
+	c.tardis.panel = Num(f, "HUD", "Panel", 1) != 0;
+	c.tardis.lampAlwaysOn = Num(f, "Lamp", "AlwaysOn", 0) != 0;
+	c.lamp.belowTop = Num(f, "Lamp", "BelowTop", c.lamp.belowTop);
+	if (sscanf_s(Str(f, "Lamp", "Colour", "").c_str(), "%d %d %d", &c.lamp.r, &c.lamp.g, &c.lamp.b) != 3)
+		c.lamp = {c.lamp.belowTop};
 	c.exteriorModel = Str(f, "Exterior", "Model", c.exteriorModel.c_str());
 	for (size_t i = 0; i < c.keys.size(); i++)
 	{
@@ -79,27 +86,15 @@ ModConfig LoadConfig(const std::string &f)
 	return c;
 }
 
-std::optional<SavedTardis> IniStore::Load()
+Text LoadText(const std::string &dir, const std::string &language)
 {
-	if (Str(path_, "Exterior", "Exists", "0") != "1") return std::nullopt;
-	SavedTardis t;
-	Pose &p = t.pose;
-	if (sscanf_s(Str(path_, "Exterior", "Pose", "").c_str(), "%f %f %f %f %f %f %f", &p.pos.x, &p.pos.y, &p.pos.z,
-	             &p.rot.x, &p.rot.y, &p.rot.z, &p.rot.w) != 7)
-		return std::nullopt;
-	p.rot = p.rot.Norm();
-	t.handbrake = Str(path_, "Exterior", "Handbrake", "0") == "1";
+	Text t;
+	for (const std::string &lang : {std::string("en-US"), language})
+	{
+		std::ifstream f(dir + lang + ".ini");
+		if (f) t.Add(f);
+		else Log("text: no %s%s.ini", dir.c_str(), lang.c_str());
+	}
+	Log("text: %s, %d lines", language.c_str(), (int)t.lines.size());
 	return t;
-}
-
-void IniStore::Save(const std::optional<SavedTardis> &t)
-{
-	const char *f = path_.c_str();
-	WritePrivateProfileStringA("Exterior", "Exists", t ? "1" : "0", f);
-	if (!t) return;
-	char buf[256];
-	const Pose &p = t->pose;
-	snprintf(buf, sizeof buf, "%f %f %f %f %f %f %f", p.pos.x, p.pos.y, p.pos.z, p.rot.x, p.rot.y, p.rot.z, p.rot.w);
-	WritePrivateProfileStringA("Exterior", "Pose", buf, f);
-	WritePrivateProfileStringA("Exterior", "Handbrake", t->handbrake ? "1" : "0", f);
 }

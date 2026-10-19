@@ -7,11 +7,12 @@
 class MaAudio : public Audio
 {
 public:
-	// soundDir holds spawn.wav, delete.wav, flight_loop.wav, flight_land.wav, flight_fall.wav
+	// soundDir holds the WAVs tools/extract_sounds.py pulls out of TARDIS Rewrite
 	MaAudio(std::string soundDir, float volume);
 	~MaAudio() override;
 
-	void Play(Sound s, V3 at) override;
+	void Play(Sound s, V3 at, bool attached = false) override;
+	void MoveAttached(V3 at) override;
 	void Loop(LoopSound s, std::optional<LoopState> state) override;
 
 	// Once per script frame: moves the listener to GTA's camera and frees finished one-shots.

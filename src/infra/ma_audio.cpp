@@ -12,7 +12,7 @@
 
 namespace
 {
-const char *kFiles[] = {"spawn.wav", "delete.wav", "flight_land.wav", "flight_fall.wav"}; // by Sound
+const char *kFiles[] = {"spawn.wav", "delete.wav", "flight_land.wav", "flight_fall.wav", "demat.wav", "mat.wav", "demat_fail.wav", "cloak_on.wav", "cloak_off.wav", "shield_on.wav", "shield_off.wav"}; // by Sound
 const char *kLoops[] = {"flight_loop.wav"};                                               // by LoopSound
 
 // miniaudio is OpenGL-style (+Y up, -Z forward); GTA is +Z up, +Y north
@@ -35,7 +35,8 @@ struct MaAudio::Impl
 	std::string dir;
 	ma_engine engine{};
 	bool ok = false;
-	std::list<ma_sound> oneShots;
+	struct OneShot { ma_sound snd; bool attached; };
+	std::list<OneShot> oneShots;
 	ma_sound loops[1]{};
 	bool loopReady[1]{}, loopOn[1]{};
 	V3 lastCam;
@@ -88,18 +89,20 @@ MaAudio::~MaAudio()
 	i.stop = true;
 	if (i.watchdog.joinable()) i.watchdog.join();
 	if (!i.ok) return;
-	for (auto &s : i.oneShots) ma_sound_uninit(&s);
+	for (auto &s : i.oneShots) ma_sound_uninit(&s.snd);
 	for (int l = 0; l < 1; l++) if (i.loopReady[l]) ma_sound_uninit(&i.loops[l]);
 	ma_engine_uninit(&i.engine);
 }
 
-void MaAudio::Play(Sound s, V3 at)
+void MaAudio::Play(Sound s, V3 at, bool attached)
 {
 	Impl &i = *impl_;
 	if (!i.ok) return;
 	std::lock_guard<std::mutex> g(i.m);
 	std::string f = i.dir + kFiles[(int)s];
-	ma_sound &snd = i.oneShots.emplace_back();
+	auto &shot = i.oneShots.emplace_back();
+	shot.attached = attached;
+	ma_sound &snd = shot.snd;
 	if (ma_sound_init_from_file(&i.engine, f.c_str(), MA_SOUND_FLAG_DECODE, nullptr, nullptr, &snd) != MA_SUCCESS)
 	{
 		Log("audio: can't load %s", f.c_str());
@@ -111,6 +114,16 @@ void MaAudio::Play(Sound s, V3 at)
 	To(at, x, y, z);
 	ma_sound_set_position(&snd, x, y, z);
 	ma_sound_start(&snd);
+}
+
+void MaAudio::MoveAttached(V3 at)
+{
+	Impl &i = *impl_;
+	if (!i.ok) return;
+	std::lock_guard<std::mutex> g(i.m);
+	float x, y, z;
+	To(at, x, y, z);
+	for (auto &s : i.oneShots) if (s.attached) ma_sound_set_position(&s.snd, x, y, z);
 }
 
 void MaAudio::Loop(LoopSound s, std::optional<LoopState> st)
@@ -159,7 +172,7 @@ void MaAudio::Tick(float dt)
 
 	for (auto it = i.oneShots.begin(); it != i.oneShots.end();)
 	{
-		if (ma_sound_at_end(&*it)) { ma_sound_uninit(&*it); it = i.oneShots.erase(it); }
+		if (ma_sound_at_end(&it->snd)) { ma_sound_uninit(&it->snd); it = i.oneShots.erase(it); }
 		else ++it;
 	}
 }
