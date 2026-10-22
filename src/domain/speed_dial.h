@@ -1,12 +1,12 @@
-// The pilot's flight speed keys (not in GMod): a tap moves the speed 1 km/h; held, it repeats every 0.1 s, and from
-// the 5th repeat on in 5 km/h steps. Pure: no game calls.
+// The pilot's flight speed keys (not in GMod): a tap moves the speed 10 km/h (~7% of GMod's top, the least you feel);
+// held, it repeats every 0.1 s, and from the 5th repeat on in 25 km/h steps. Pure: no game calls.
 #pragma once
 
 struct SpeedDial
 {
 	static constexpr float kFirstDelay = 0.35f; // seconds before a held key repeats, so a tap is one step
 	static constexpr float kRepeat = 0.1f;
-	static constexpr int kFastAfter = 5, kFastStep = 5;
+	static constexpr int kStep = 10, kFastAfter = 5, kFastStep = 25;
 
 	float next = 0;
 	int repeats = 0;
@@ -16,9 +16,9 @@ struct SpeedDial
 	int Step(int dir, bool pressed, float dt)
 	{
 		if (!dir) { repeats = 0; return 0; }
-		if (pressed) { repeats = 0; next = kFirstDelay; return dir; }
+		if (pressed) { repeats = 0; next = kFirstDelay; return dir * kStep; }
 		if ((next -= dt) > 0) return 0;
 		next += kRepeat;
-		return dir * (++repeats >= kFastAfter ? kFastStep : 1);
+		return dir * (++repeats >= kFastAfter ? kFastStep : kStep);
 	}
 };

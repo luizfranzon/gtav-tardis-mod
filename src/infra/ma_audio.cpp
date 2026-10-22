@@ -12,7 +12,7 @@
 
 namespace
 {
-const char *kFiles[] = {"spawn.wav", "delete.wav", "flight_land.wav", "flight_fall.wav", "demat.wav", "mat.wav", "demat_fail.wav", "cloak_on.wav", "cloak_off.wav", "shield_on.wav", "shield_off.wav"}; // by Sound
+const char *kFiles[] = {"spawn.wav", "delete.wav", "flight_land.wav", "flight_fall.wav", "demat.wav", "mat.wav", "demat_fail.wav", "cloak_on.wav", "cloak_off.wav", "shield_on.wav", "shield_off.wav", "interrupt.wav"}; // by Sound
 const char *kLoops[] = {"flight_loop.wav"};                                               // by LoopSound
 
 // miniaudio is OpenGL-style (+Y up, -Z forward); GTA is +Z up, +Y north
@@ -124,6 +124,16 @@ void MaAudio::MoveAttached(V3 at)
 	float x, y, z;
 	To(at, x, y, z);
 	for (auto &s : i.oneShots) if (s.attached) ma_sound_set_position(&s.snd, x, y, z);
+}
+
+void MaAudio::StopAttached()
+{
+	Impl &i = *impl_;
+	if (!i.ok) return;
+	std::lock_guard<std::mutex> g(i.m);
+	for (auto it = i.oneShots.begin(); it != i.oneShots.end();)
+		if (it->attached) { ma_sound_uninit(&it->snd); it = i.oneShots.erase(it); }
+		else ++it;
 }
 
 void MaAudio::Loop(LoopSound s, std::optional<LoopState> st)

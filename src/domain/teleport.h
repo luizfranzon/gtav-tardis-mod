@@ -42,6 +42,15 @@ struct Teleport
 	void Start() { phase = Phase::Demat; alpha = 255; step = 0; wait = kDematDelay; }
 	void Arrive() { if (phase == Phase::Seek) { phase = Phase::Premat; wait = kPrematDelay; } }
 
+	// The handbrake mid-journey: over at once, fully visible where it is. True if it was still dematerialising.
+	bool Interrupt()
+	{
+		bool demat = phase == Phase::Demat;
+		phase = Phase::Idle;
+		alpha = 255;
+		return demat;
+	}
+
 	// Vanished: fully faded out, move it to the destination. Landing: put it down there, it fades in now.
 	Event Step(float dt)
 	{

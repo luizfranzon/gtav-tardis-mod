@@ -13,6 +13,7 @@ public:
 
 	void Play(Sound s, V3 at, bool attached = false) override;
 	void MoveAttached(V3 at) override;
+	void StopAttached() override;
 	void Loop(LoopSound s, std::optional<LoopState> state) override;
 
 	// Once per script frame: moves the listener to GTA's camera and frees finished one-shots.

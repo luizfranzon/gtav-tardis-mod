@@ -5,6 +5,8 @@
 namespace
 {
 constexpr float kBoardRange = 3.0f;   // metres; E this close to the exterior starts piloting
+constexpr float kAirExit = 3.0f;     // metres above the ground; higher, the player steps out into the air
+constexpr float kInterruptKick = 8.0f; // m/s up when the handbrake breaks off a demat (~3 m)
 constexpr float kParkRange = 150.0f;  // beyond this the map collision under it isn't streamed
 constexpr float kProbeZ = 1000.0f;    // metres; the destination's ground is searched from above the map's top
 constexpr float kSafeGrace = 3.0f;    // seconds from H the walkable spot gets to stream in before the bare ground will do
@@ -61,7 +63,6 @@ void Tardis::Update(const FrameInput &in, float dt)
 	if (!world_.HasExterior())
 	{
 		piloting_ = false;
-		world_.Rotorwash(false);
 		return;
 	}
 
@@ -90,6 +91,7 @@ void Tardis::Update(const FrameInput &in, float dt)
 	}
 
 	if (tp_.Busy()) Travel(dt);
+	if (secondBlast_ > 0 && (secondBlast_ -= dt) <= 0) world_.Explode(60);
 	Cloak(dt);
 
 	bool hidden = tp_.Hidden(); // between places: held still out of sight
@@ -135,11 +137,10 @@ void Tardis::Update(const FrameInput &in, float dt)
 		world_.Trace("physlock: a train ran into it and stopped");
 	}
 
-	// lamp and rotorwash: on while it flies or travels; neither shows once it has vanished or while cloaked
+	// lamp: on while it flies or travels; it doesn't show once it has vanished or while cloaked
 	clock_ += dt;
 	bool travelling = tp_.Busy() && !hidden;
 	world_.ShowLamp(Lamp(state_.floating && !hidden, travelling, state_.cloak, settings_.lampAlwaysOn && !hidden, clock_));
-	world_.Rotorwash((state_.flight && !hidden || travelling) && !state_.cloak); // GMod ShouldTurnOnRotorwash
 
 	Sounds(world_.ExteriorPose(), world_.ExteriorVelocity(), dt);
 	if (piloting_ && settings_.panel) world_.DrawPanel(CurrentPanel()); // after this frame's keys, so it shows the new state
@@ -189,7 +190,8 @@ Panel Tardis::CurrentPanel() const
 
 	Panel p{t("panel.title"), {
 		light("panel.flight", A::FlightToggle, state_.flight),
-		light("panel.float", A::FloatToggle, state_.floating),
+		// in flight `floating` is always on (flight brings float); the pilot's own toggle is floatfirst, as the notification says
+		light("panel.float", A::FloatToggle, state_.flight ? state_.floatfirst : state_.floating),
 		light("panel.handbrake", A::Handbrake, state_.handbrake),
 		light("panel.cloak", A::CloakToggle, state_.cloak),
 		light("panel.physlock", A::PhyslockToggle, state_.physlock),
@@ -207,7 +209,10 @@ Panel Tardis::CurrentPanel() const
 	{
 		char kmh[32];
 		snprintf(kmh, sizeof kmh, "%+d km/h", state_.speedOffset);
-		p.rows.push_back({K::Reading, t("panel.speed"), key(A::SpeedUp) + "/" + key(A::SpeedDown), kmh});
+		// "Num 8/Num 5" -> "Num 8/5": one short cap like the others
+		std::string up = key(A::SpeedUp), down = key(A::SpeedDown);
+		if (up.rfind("Num ", 0) == 0 && down.rfind("Num ", 0) == 0) down.erase(0, 4);
+		p.rows.push_back({K::Reading, t("panel.speed"), up + "/" + down, kmh});
 		p.rows.push_back({K::Reading, t("panel.spin"), key(A::FlightSpinDir), SpinName()});
 	}
 	p.rows.push_back({K::Footer, t("panel.leave"), "E"});
@@ -319,8 +324,43 @@ void Tardis::Travel(float dt)
 			world_.FadeScreen(false);
 		}
 		if (!state_.cloak) audio_.Play(Sound::Mat, *spot_, true);
+		world_.ClearWanted(); // it kept the wanted level on the way; here, materialising, it is gone
 		tp_.Arrive();
 	}
+}
+
+// sh_physlock.lua ExplodeIfFast: a shake over 50 u/s, a bang over 1600 u/s (~110 km/h), harmful only over 2500
+void Tardis::ExplodeIfFast()
+{
+	float v = world_.ExteriorVelocity().Len() / kUnit;
+	if (v > 50) world_.ShakeCamera();
+	if (v > 1600) world_.Explode(std::max((v - 2500) / 5, 0.0f));
+}
+
+// sh_tp_interrupt.lua InterruptTeleport: the journey's sounds cut to the interrupt one, it is back at once where it
+// is, blows up twice a second apart, and drops with flight and float off (GMod also cuts the power, which this port
+// doesn't have). Unlike GMod, dematerialising it blows up too and is thrown up (the user's call)
+void Tardis::InterruptTravel()
+{
+	Pose ext = world_.ExteriorPose();
+	audio_.StopAttached();
+	audio_.Play(Sound::Interrupt, ext.pos, true);
+	world_.Preload(std::nullopt);
+	if (far_ && tp_.phase == Teleport::Phase::Seek) // still blacked out on the destination
+	{
+		world_.FocusOn(std::nullopt);
+		world_.FadeScreen(false);
+	}
+	spot_.reset();
+	landingT_ = 0;
+	world_.Trace("travel: interrupted by the handbrake");
+	if (tp_.Interrupt()) world_.DriveExterior({}, world_.ExteriorVelocity() + V3{0, 0, kInterruptKick});
+	world_.Explode(60);
+	world_.ShakeCamera();
+	secondBlast_ = 1;
+	state_.floatfirst = false;
+	state_.SetFlight(false);
+	state_.SetFloat(false);
 }
 
 void Tardis::PilotControls(const FrameInput &in, float dt)
@@ -340,8 +380,12 @@ void Tardis::PilotControls(const FrameInput &in, float dt)
 	}
 	if (in.Pressed(Action::Handbrake))
 	{
+		bool flying = state_.flight;
 		state_.ToggleHandbrake();
 		world_.Notify(t(state_.handbrake ? "msg.handbrake.on" : "msg.handbrake.off"));
+		// GMod HandbrakeToggled "vortex": a journey is interrupted, else flight is (InterruptFlight -> ExplodeIfFast)
+		if (state_.handbrake && tp_.Busy()) InterruptTravel();
+		else if (state_.handbrake && flying) ExplodeIfFast();
 	}
 	if (in.Pressed(Action::CloakToggle))
 	{
@@ -390,8 +434,10 @@ void Tardis::SetPiloting(bool on)
 	{
 		Pose ext = world_.ExteriorPose();
 		V3 exit = ext.pos + ext.rot.Forward() * settings_.exitOffset;
-		exit.z = world_.GroundZ(exit + V3{0, 0, 2});
-		world_.Unboard(exit);
+		float ground = world_.GroundZ(exit + V3{0, 0, 2});
+		bool air = exit.z - ground > kAirExit; // flying: out at its height, with a parachute
+		if (!air) exit.z = ground;
+		world_.Unboard(exit, air);
 	}
 	world_.Notify(settings_.text("msg.pilot.off"));
 }

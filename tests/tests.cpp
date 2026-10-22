@@ -182,6 +182,8 @@ struct FakeWorld : World
 	bool modelOk = true, has = false, gravity = true, frozen = false, boarded = false, inVehicle = false;
 	Pose ext, player{{0, 0, 0}, {}};
 	V3 vel, unboardedAt, spin;
+	bool parachute = false;
+	int wantedCleared = 0;
 	int alpha = 255;
 	std::optional<V3> waypoint;
 	bool groundStreamed = true;
@@ -210,7 +212,10 @@ struct FakeWorld : World
 	Pose PlayerPose() override { return player; }
 	bool PlayerInVehicle() override { return inVehicle; }
 	void Board() override { boarded = true; }
-	void Unboard(V3 at) override { boarded = false; unboardedAt = at; }
+	void Unboard(V3 at, bool chute) override { boarded = false; unboardedAt = at; parachute = chute; }
+	void ClearWanted() override { wantedCleared++; }
+	std::vector<float> explosions;
+	void Explode(float m) override { explosions.push_back(m); }
 	float GroundZ(V3 p) override { return groundStreamed ? ground : p.z; }
 	std::optional<V3> SafeSpot(V3) override { return safeSpot; }
 	V3 RoadNode(V3) override { return road; }
@@ -239,9 +244,7 @@ struct FakeWorld : World
 	void Shield(bool visible) override { shieldFrames++; shieldVisible = visible; }
 	void FlashShield() override { shieldFlashes++; }
 	LampLight lamp;
-	bool wash = false;
 	void ShowLamp(LampLight l) override { lamp = l; }
-	void Rotorwash(bool on) override { wash = on; }
 	void Notify(const std::string &t) override { notes.push_back(t); }
 };
 
@@ -253,6 +256,8 @@ struct FakeAudio : Audio
 	std::vector<bool> attached;
 	void Play(Sound s, V3, bool a) override { played.push_back(s); attached.push_back(a); }
 	void MoveAttached(V3 at) override { attachedAt = at; }
+	int stopped = 0;
+	void StopAttached() override { stopped++; }
 	void Loop(LoopSound, std::optional<LoopState> st) override { flight = st; }
 };
 
@@ -297,6 +302,16 @@ static void TardisTests()
 		t.Update(Use(), dt);
 		assert(!t.piloting() && !w.boarded && !w.cameraOn);
 		assert(Near(w.unboardedAt.y, 4 - 1.4f, 1e-3f)); // in front of the door, towards the player
+		assert(!w.parachute);
+	}
+	{ // stepping out high up: at the TARDIS's height, with a parachute
+		FakeWorld w; FakeAudio au;
+		Tardis t(w, au, En());
+		SpawnAndWalkUp(t, w);
+		t.Update(Use(), dt);
+		w.ext.pos.z = 50;
+		t.Update(Use(), dt);
+		assert(w.parachute && Near(w.unboardedAt.z, 50, 1e-3f));
 	}
 	{ // too far or in a car: no boarding
 		FakeWorld w; FakeAudio au;
@@ -383,12 +398,14 @@ static void TravelTests()
 		assert(t.piloting()); // no stepping out mid-journey
 		while (!t.teleport().Hidden()) t.Update({}, dt);
 		assert(w.alpha == 0 && w.frozen && Near((w.ext.pos - origin).Len(), 0, 1e-3f)); // never sent up into the sky
+		assert(!w.wantedCleared); // still wanted while it fades out
 		for (int i = 0; i < 60; i++) t.Update({}, dt);
 		assert(t.teleport().phase == Teleport::Phase::Seek);
 		w.safeSpot = V3{55, 62, 12};
 		t.Update({}, dt);
 		assert(Near(w.ext.pos.x, 55, 1e-3f) && Near(w.ext.pos.z, 12, 1e-3f) && Near(w.cleared.x, 55, 1e-3f) && !w.preload);
 		assert(au.played.back() == Sound::Mat && au.attached.back() && w.frozen);
+		assert(w.wantedCleared == 1); // gone once it materialises
 		while (t.teleport().Hidden()) t.Update({}, dt);
 		assert(!w.frozen);
 		while (t.teleport().Busy()) t.Update({}, dt);
@@ -398,6 +415,36 @@ static void TravelTests()
 		for (int i = 0; i < 6; i++) assert(w.traces[i].find(order[i]) != std::string::npos);
 		t.Update(Use(), dt);
 		assert(!t.piloting());
+	}
+	{ // the handbrake while it dematerialises: the interrupt sound, an explosion, fully visible at once, thrown up
+		FakeWorld w; FakeAudio au;
+		w.waypoint = V3{50, 60, 0};
+		Tardis t(w, au, En());
+		pilot(t, w);
+		V3 origin = w.ext.pos;
+		t.Update(Press(Action::TeleportDemat), dt);
+		for (int i = 0; i < 60 * 3; i++) t.Update({}, dt);
+		assert(t.teleport().phase == Teleport::Phase::Demat && w.alpha < 255);
+		t.Update(Press(Action::Handbrake), dt);
+		assert(au.stopped == 1 && au.played.back() == Sound::Interrupt && w.explosions.size() == 1);
+		assert(!t.teleport().Busy() && w.alpha == 255 && !w.preload && w.vel.z > 5 && w.gravity);
+		assert(Near((w.ext.pos - origin).Len(), 0, 1e-3f) && !w.wantedCleared); // it never got there
+	}
+	{ // the handbrake while it materialises: back at once, two explosions a second apart, and it drops
+		FakeWorld w; FakeAudio au;
+		w.waypoint = V3{50, 60, 0};
+		w.safeSpot = V3{55, 62, 12};
+		Tardis t(w, au, En());
+		pilot(t, w);
+		t.Update(Press(Action::FlightToggle), dt);
+		t.Update(Press(Action::TeleportDemat), dt);
+		for (int i = 0; i < 60 * 30 && t.teleport().phase != Teleport::Phase::Mat; i++) t.Update({}, dt);
+		assert(t.teleport().phase == Teleport::Phase::Mat);
+		t.Update(Press(Action::Handbrake), dt);
+		assert(!t.teleport().Busy() && w.alpha == 255 && au.played.back() == Sound::Interrupt);
+		assert(w.explosions.size() == 1 && w.explosions[0] == 60 && !t.state().flight && !t.state().floating && w.gravity);
+		for (int i = 0; i < 61; i++) t.Update({}, dt);
+		assert(w.explosions.size() == 2);
 	}
 	{ // the spot is ready before it has faded out: it lands the moment it vanishes, settled onto the ground
 		FakeWorld w; FakeAudio au;
@@ -559,8 +606,12 @@ static void PanelTests()
 		assert(!Row(w.panel, "Speed")); // flight only, as are the movement keys, which never show
 		for (auto &r : w.panel->rows) assert(r.key != "W" && r.key != "LSHIFT" && r.key != "SPACE");
 		t.Update(Press(Action::FlightToggle), dt);
-		assert(Row(w.panel, "Flight")->on && Row(w.panel, "Flight")->value == "ACTIVE" && Row(w.panel, "Anti-gravs")->on);
-		assert(Row(w.panel, "Speed")->value == "+0 km/h" && Row(w.panel, "Speed")->key == "Num 8/Num 5");
+		assert(Row(w.panel, "Flight")->on && Row(w.panel, "Flight")->value == "ACTIVE" && !Row(w.panel, "Anti-gravs")->on);
+		t.Update(Press(Action::FloatToggle), dt); // in flight the light follows the toggle, as the notification does
+		assert(Row(w.panel, "Anti-gravs")->on);
+		t.Update(Press(Action::FloatToggle), dt);
+		assert(!Row(w.panel, "Anti-gravs")->on);
+		assert(Row(w.panel, "Speed")->value == "+0 km/h" && Row(w.panel, "Speed")->key == "Num 8/5");
 		assert(Row(w.panel, "Spin")->value == "anti-clockwise");
 		w.panel.reset();
 		t.Update(Use(), dt);
@@ -708,16 +759,16 @@ static void PhyslockTests()
 static void SpeedTests()
 {
 	const float dt = 1 / 60.0f;
-	{ // a tap is 1 km/h; held, 1 km/h steps every 0.1 s, then 5 from the 5th repeat
+	{ // a tap is 10 km/h; held, 10 km/h steps every 0.1 s, then 25 from the 5th repeat
 		SpeedDial d;
-		assert(d.Step(1, true, dt) == 1);
+		assert(d.Step(1, true, dt) == 10);
 		int sum = 0;
 		for (int i = 0; i < 20; i++) sum += d.Step(1, false, dt); // 0.33 s: still the first delay
 		assert(sum == 0);
 		std::vector<int> steps;
 		for (int i = 0; i < 60; i++) if (int s = d.Step(1, false, dt)) steps.push_back(s);
-		assert(steps.size() >= 6 && steps[0] == 1 && steps[3] == 1 && steps[4] == 5 && steps[5] == 5);
-		assert(d.Step(0, false, dt) == 0 && d.Step(-1, true, dt) == -1);
+		assert(steps.size() >= 6 && steps[0] == 10 && steps[3] == 10 && steps[4] == 25 && steps[5] == 25);
+		assert(d.Step(0, false, dt) == 0 && d.Step(-1, true, dt) == -10);
 	}
 	{ // top speed: GMod's ~137 km/h, scaled by the offset, never under 1 km/h
 		assert(Near(FlightModel::kTopSpeedKmh, 136.5f, 0.5f));
@@ -748,7 +799,18 @@ static void SpeedTests()
 		t.Update(Press(Action::SpeedUp), dt);
 		t.Update({}, dt);
 		t.Update(Press(Action::SpeedUp), dt);
-		assert(t.state().speedOffset == 2);
+		assert(t.state().speedOffset == 20);
+		w.vel = {0, 1000 * kUnit, 0}; // the handbrake in flight: a shake, a bang only when fast (GMod ExplodeIfFast)
+		int shakes = w.shakes;
+		t.Update(Press(Action::Handbrake), dt);
+		assert(!t.state().flight && w.shakes == shakes + 1 && w.explosions.empty());
+		t.Update(Press(Action::Handbrake), dt);
+		t.Update(Press(Action::FlightToggle), dt);
+		w.vel = {0, 2000 * kUnit, 0};
+		t.Update(Press(Action::Handbrake), dt);
+		assert(w.explosions.size() == 1 && w.explosions[0] == 0);
+		t.Update(Press(Action::Handbrake), dt);
+		t.Update(Press(Action::FlightToggle), dt);
 		t.Update(Press(Action::SpeedReset), dt);
 		assert(t.state().speedOffset == 0);
 		t.Update(Press(Action::SpeedDown), dt);
@@ -773,29 +835,29 @@ static void LampTests()
 		assert(lo < 0.05f && hi > 0.5f);
 		assert(!Lamp(true, true, true, true, 0).on);
 	}
-	{ // through the use case: dark parked, lit and washing in flight, dark again cloaked, wash only in flight not float
+	{ // through the use case: dark parked, lit in float and flight, dark again cloaked
 		FakeWorld w; FakeAudio au;
 		Tardis t(w, au, En());
 		SpawnAndWalkUp(t, w);
 		t.Update(Use(), dt);
-		assert(!w.lamp.on && !w.wash);
+		assert(!w.lamp.on);
 		t.Update(Press(Action::FloatToggle), dt);
-		assert(w.lamp.on && !w.wash);
+		assert(w.lamp.on);
 		t.Update(Press(Action::FlightToggle), dt);
-		assert(w.lamp.on && w.wash);
+		assert(w.lamp.on);
 		t.Update(Press(Action::CloakToggle), dt);
-		assert(!w.lamp.on && !w.wash);
+		assert(!w.lamp.on);
 	}
-	{ // travelling lights it and washes until it vanishes
+	{ // travelling lights it until it vanishes
 		FakeWorld w; FakeAudio au;
 		w.waypoint = V3{50, 60, 0};
 		Tardis t(w, au, En());
 		SpawnAndWalkUp(t, w);
 		t.Update(Use(), dt);
 		t.Update(Press(Action::TeleportDemat), dt);
-		assert(w.lamp.on && w.wash);
+		assert(w.lamp.on);
 		while (!t.teleport().Hidden()) t.Update({}, dt);
-		assert(!w.lamp.on && !w.wash);
+		assert(!w.lamp.on);
 	}
 }
 

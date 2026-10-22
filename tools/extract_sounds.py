@@ -19,6 +19,7 @@ SOUNDS = {
     "demat.wav": "sound/p00gie/tardis/default/demat_ext.ogg",       # Toyota Teleport.demat
     "mat.wav": "sound/p00gie/tardis/default/mat_ext.ogg",           # Toyota Teleport.mat
     "demat_fail.wav": "sound/drmatt/tardis/demat_fail.wav",         # Exterior.Sounds.Teleport.demat_fail
+    "interrupt.wav": "sound/p00gie/tardis/default/demat_interrupt.ogg",  # Toyota Teleport.interrupt (handbrake mid-journey)
     "cloak_on.wav": "sound/drmatt/tardis/phase_enable.wav",         # Exterior.Sounds.Cloak
     "cloak_off.wav": "sound/drmatt/tardis/phase_disable.wav",       # Exterior.Sounds.CloakOff
     "shield_on.wav": "sound/drmatt/tardis/power_on.wav",            # the shield (not in GMod): its power sounds

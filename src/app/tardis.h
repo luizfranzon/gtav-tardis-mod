@@ -44,6 +44,8 @@ private:
 	void Sounds(Pose ext, V3 vel, float dt);
 	void Demat();
 	void Travel(float dt);
+	void InterruptTravel();
+	void ExplodeIfFast();
 
 	World &world_;
 	Audio &audio_;
@@ -52,6 +54,7 @@ private:
 	PilotCamera camera_;
 	TardisState state_;
 	Teleport tp_;
+	float secondBlast_ = 0; // seconds to the second explosion of an interrupted journey
 	V3 dest_;          // the waypoint being travelled to
 	std::optional<V3> spot_; // where it is set down there, once found
 	float travelT_ = 0;      // seconds since H

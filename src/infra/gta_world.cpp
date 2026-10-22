@@ -1,6 +1,7 @@
 #include "gta_world.h"
 #include <windows.h>
 #include <algorithm>
+#include <cmath>
 #include <main.h>
 #include <natives.h>
 #include "log.h"
@@ -68,7 +69,6 @@ bool GtaWorld::SpawnExterior(Pose at)
 
 void GtaWorld::DespawnExterior()
 {
-	Rotorwash(false);
 	if (HasExterior()) ENTITY::DELETE_ENTITY(&ext_);
 	ext_ = 0;
 	Log("exterior removed");
@@ -160,50 +160,6 @@ void GtaWorld::ShowLamp(LampLight l)
 	GRAPHICS::DRAW_LIGHT_WITH_RANGE(p.x, p.y, p.z + 0.1f, lamp_.r, lamp_.g, lamp_.b, 0.8f, 20.0f * l.glow);
 }
 
-void GtaWorld::Rotorwash(bool on)
-{
-	// the helicopters' own downwash (vfxvehicleinfo.ymt, VFXVEHICLEINFO_HELI_GENERIC): core's veh_downwash*,
-	// shown up to 20 m above the ground, stronger the lower it is
-	const float kRange = 20.0f;
-	const char *fx = nullptr;
-	Vector3 ground{};
-	float height = kRange;
-	if (on && HasExterior())
-	{
-		V3 at = ExteriorPose().pos;
-		at.z -= baseZ_;
-		BOOL hit = FALSE;
-		Vector3 normal;
-		Entity ent;
-		int ray = WORLDPROBE::_CAST_RAY_POINT_TO_POINT(at.x, at.y, at.z, at.x, at.y, at.z - kRange, 1 | 16, ext_, 7); // map, objects
-		WORLDPROBE::_GET_RAYCAST_RESULT(ray, &hit, &ground, &normal, &ent);
-		float water = 0;
-		bool wet = WATER::GET_WATER_HEIGHT_NO_WAVES(at.x, at.y, at.z, &water) && water < at.z && water > at.z - kRange && (!hit || water > ground.z);
-		if (wet) { ground = {at.x, 0, at.y, 0, water, 0}; fx = "veh_downwash_water"; }
-		else if (hit) fx = "veh_downwash";
-		// ponytail: one ground effect; sand/dirt/foliage (veh_downwash_sand/_dirt/_foliage) need the hit's material
-		if (fx) height = at.z - ground.z;
-	}
-	if (wash_ && fx != washFx_)
-	{
-		GRAPHICS::STOP_PARTICLE_FX_LOOPED(wash_, FALSE);
-		wash_ = 0;
-	}
-	washFx_ = fx;
-	if (!fx) return;
-	STREAMING::REQUEST_NAMED_PTFX_ASSET((char *)"core");
-	if (!STREAMING::HAS_NAMED_PTFX_ASSET_LOADED((char *)"core")) return;
-	if (!wash_)
-	{
-		GRAPHICS::_SET_PTFX_ASSET_NEXT_CALL((char *)"core");
-		wash_ = GRAPHICS::START_PARTICLE_FX_LOOPED_AT_COORD((char *)fx, ground.x, ground.y, ground.z, 0, 0, 0, 1.0f, FALSE, FALSE, FALSE, FALSE);
-		Log("rotorwash: %s", fx);
-	}
-	GRAPHICS::SET_PARTICLE_FX_LOOPED_OFFSETS(wash_, ground.x, ground.y, ground.z, 0, 0, 0);
-	// the game feeds rotor speed into "speed" (SpeedEvo 0..10): full near the ground, fading out at 20 m
-	GRAPHICS::SET_PARTICLE_FX_LOOPED_EVOLUTION(wash_, (char *)"speed", 1.0f - std::clamp(height / kRange, 0.0f, 1.0f), FALSE);
-}
-
 // ---------------------------------------------------------------- player
 
 Pose GtaWorld::PlayerPose() { return {From(ENTITY::GET_ENTITY_COORDS(Me(), TRUE)), Quat::Yaw(ENTITY::GET_ENTITY_HEADING(Me()))}; }
@@ -232,7 +188,7 @@ void GtaWorld::Board()
 	}
 }
 
-void GtaWorld::Unboard(V3 exit)
+void GtaWorld::Unboard(V3 exit, bool parachute)
 {
 	Ped ped = Me();
 	if (PED::IS_PED_IN_ANY_VEHICLE(ped, FALSE)) AI::CLEAR_PED_TASKS_IMMEDIATELY(ped); // out of the seat at once
@@ -243,7 +199,9 @@ void GtaWorld::Unboard(V3 exit)
 	ENTITY::SET_ENTITY_VISIBLE(ped, TRUE, FALSE);
 	ENTITY::SET_ENTITY_COLLISION(ped, TRUE, TRUE);
 	ENTITY::SET_ENTITY_INVINCIBLE(ped, FALSE);
-	Log("player out at %.2f %.2f %.2f", exit.x, exit.y, exit.z);
+	// GADGET_PARACHUTE: the game lets them open it as they fall (F / attack)
+	if (parachute) WEAPON::GIVE_WEAPON_TO_PED(ped, GAMEPLAY::GET_HASH_KEY((char *)"GADGET_PARACHUTE"), 1, FALSE, TRUE);
+	Log("player out at %.2f %.2f %.2f%s", exit.x, exit.y, exit.z, parachute ? " (in the air, parachute)" : "");
 }
 
 // ---------------------------------------------------------------- queries
@@ -318,7 +276,9 @@ V3 GtaWorld::CastToWorld(V3 a, V3 b)
 	BOOL hit = FALSE;
 	Vector3 end, normal;
 	Entity ent;
-	int ray = WORLDPROBE::_CAST_RAY_POINT_TO_POINT(a.x, a.y, a.z, b.x, b.y, b.z, 1 /* map */, ext_, 7);
+	// START_EXPENSIVE_SYNCHRONOUS_SHAPE_TEST_LOS_PROBE: _CAST_RAY_POINT_TO_POINT is the async probe, still pending
+	// when read in the same frame, so it reported no hit almost every time
+	int ray = WORLDPROBE::_0x7EE9F5D83DD4F90E(a.x, a.y, a.z, b.x, b.y, b.z, 1 /* map */, ext_, 7);
 	WORLDPROBE::_GET_RAYCAST_RESULT(ray, &hit, &end, &normal, &ent);
 	return hit ? From(end) : b;
 }
@@ -339,6 +299,7 @@ void GtaWorld::ShowCamera(std::optional<CameraShot> shot)
 		CAM::RENDER_SCRIPT_CAMS(FALSE, FALSE, 0, TRUE, FALSE);
 		CAM::DESTROY_CAM(cam_, FALSE);
 		cam_ = 0;
+		UI::UNLOCK_MINIMAP_ANGLE();
 		return;
 	}
 	if (!cam_)
@@ -349,6 +310,8 @@ void GtaWorld::ShowCamera(std::optional<CameraShot> shot)
 	}
 	CAM::SET_CAM_COORD(cam_, shot->pos.x, shot->pos.y, shot->pos.z);
 	CAM::SET_CAM_ROT(cam_, shot->view.pitch, 0, shot->view.yaw, 2);
+	// seated, the minimap turns with the vehicle, so a spinning TARDIS spun the map; it follows the camera instead
+	UI::LOCK_MINIMAP_ANGLE(((int)std::lround(shot->view.yaw) % 360 + 360) % 360);
 }
 
 void GtaWorld::LockControls()
@@ -365,6 +328,24 @@ void GtaWorld::HidePlayer()
 	ENTITY::SET_ENTITY_VISIBLE(ped, FALSE, FALSE); // water and cutscene logic turn the ped visible again
 	WEAPON::SET_CURRENT_PED_WEAPON(ped, GAMEPLAY::GET_HASH_KEY((char *)"WEAPON_UNARMED"), TRUE);
 	PLAYER::DISABLE_PLAYER_FIRING(PLAYER::PLAYER_ID(), TRUE); // left click beeped through the disabled controls
+}
+
+void GtaWorld::Explode(float magnitude)
+{
+	if (!HasExterior()) return;
+	V3 at = ExteriorPose().pos;
+	// EXP_TAG_GRENADE (0), audible, visible, shaking. Not owned: no crime. The TARDIS and its pilot are proofed.
+	// ponytail: magnitude -> damage scale is a guess (GMod's 60 = 0.6); tune once it's seen in game
+	FIRE::ADD_EXPLOSION(at.x, at.y, at.z, 0, std::min(magnitude / 100.0f, 1.0f), TRUE, FALSE, 1.0f);
+	Log("explosion at %.2f %.2f %.2f (magnitude %.0f)", at.x, at.y, at.z, magnitude);
+}
+
+void GtaWorld::ClearWanted()
+{
+	Player me = PLAYER::PLAYER_ID();
+	if (PLAYER::GET_PLAYER_WANTED_LEVEL(me) == 0) return;
+	PLAYER::CLEAR_PLAYER_WANTED_LEVEL(me);
+	Log("police: wanted level cleared (demat)");
 }
 
 void GtaWorld::HideFromPolice()
@@ -497,7 +478,12 @@ void GtaWorld::DrawPanel(const Panel &panel)
 	Rect(right - 0.012f, y + titleH / 2 - 0.004f * aspect, 0.008f, 0.008f * aspect, kCyan, 200); // a lamp in the corner
 
 	auto keyCap = [&](const std::string &k, float rx, float ty) { // amber key, right-aligned to rx; returns its left edge
-		float kw = 0.006f + 0.0062f * k.size();
+		// sized to the text as drawn (font 4 is narrow, so a per-letter guess made long keys far too wide)
+		UI::SET_TEXT_FONT(4);
+		UI::SET_TEXT_SCALE(0.0f, 0.36f);
+		UI::_SET_TEXT_ENTRY_FOR_WIDTH((char *)"STRING");
+		UI::_ADD_TEXT_COMPONENT_STRING((char *)k.c_str());
+		float kw = 0.006f + UI::_GET_TEXT_SCREEN_WIDTH(TRUE);
 		Rect(rx - kw, ty + 0.003f, kw, rowH - 0.006f, kAmber, 40);
 		Label(k, rx - 0.003f, ty + 0.002f, kAmber, 0.36f, true);
 		return rx - kw;

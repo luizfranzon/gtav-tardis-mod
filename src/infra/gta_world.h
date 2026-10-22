@@ -34,12 +34,11 @@ public:
 	void PlaceExterior(Pose at) override;
 	void SetExteriorAlpha(int alpha) override;
 	void ShowLamp(LampLight lamp) override;
-	void Rotorwash(bool on) override;
 
 	Pose PlayerPose() override;
 	bool PlayerInVehicle() override;
 	void Board() override;
-	void Unboard(V3 exit) override;
+	void Unboard(V3 exit, bool parachute) override;
 
 	float GroundZ(V3 near) override;
 	std::optional<V3> SafeSpot(V3 near) override;
@@ -57,6 +56,8 @@ public:
 	void LockControls() override;
 	void BlockPhone() override;
 	void HidePlayer() override;
+	void Explode(float magnitude) override;
+	void ClearWanted() override;
 	void HideFromPolice() override;
 	bool HoldTrains() override;
 	void ShakeCamera() override;
@@ -73,8 +74,6 @@ private:
 	float baseZ_ = 0; // metres from the model's origin down to its base (TardisV: 1.01)
 	float topZ_ = 0;  // metres from the origin up to its top (TardisV: 2.31)
 	LampLook lamp_;
-	int wash_ = 0;            // looped ptfx handle, 0 when off
-	const char *washFx_ = nullptr; // which one is running
 	int cam_ = 0;
 	bool policeBlind_ = false, policeBlindNow_ = false; // HideFromPolice: last frame, this frame
 	std::map<int, float> heldTrains_;                   // engine -> its cruise speed before it was stopped
